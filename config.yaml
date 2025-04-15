@@ -1,0 +1,13 @@
+timezone: US/Central
+output_dir: data
+push_to_hf: false
+subreddits:
+  - name: apple
+    post_limit: 100
+    comment_limit: 5
+  - name: GooglePixel
+    post_limit: 100
+    comment_limit: 5
+  - name: Android
+    post_limit: 100
+    comment_limit: 5
