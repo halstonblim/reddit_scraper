@@ -1,6 +1,6 @@
 timezone: US/Central
 output_dir: data
-push_to_hf: false
+push_to_hf: true
 subreddits:
   - name: apple
     post_limit: 100

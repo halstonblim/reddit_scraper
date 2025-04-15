@@ -6,6 +6,7 @@ import pytz
 import pandas as pd
 from tqdm import tqdm
 from datasets import Dataset, load_dataset
+from datasets.data_files import EmptyDatasetError
 from huggingface_hub import HfApi
 import yaml
 from pathlib import Path
@@ -111,38 +112,42 @@ class RedditScraper:
         self.logger.info(f"Saved data to {output_path}")
         return output_path
 
+
+
     def upload_to_hf(self, df, date_str, days_back=2):
-        """Upload deduplicated DataFrame to Hugging Face dataset."""
         if not self.config.get('push_to_hf', False):
             self.logger.info("Skipping Hugging Face upload as configured")
             return
 
         try:
-            self.logger.info("Loading existing HF dataset for deduplication...")
-            existing = load_dataset("hblim/top_reddit_posts_daily", split="train")
+            try:
+                self.logger.info("Loading existing HF dataset for deduplication...")
+                existing = load_dataset("hblim/top_reddit_posts_daily", split="train")
+                
+                cutoff = (datetime.now() - timedelta(days=days_back)).replace(tzinfo=None)
+                recent = existing.filter(lambda row: pd.to_datetime(row["created_at"]).replace(tzinfo=None) >= cutoff)
+                recent_ids = set(recent["post_id"])
 
-            # Keep only recent post_ids from the past few days
-            cutoff = (datetime.now() - timedelta(days=days_back)).isoformat()
-            recent = existing.filter(lambda row: row["created_at"] >= cutoff)
-            recent_ids = set(recent["post_id"])
+                original_count = len(df)
+                df = df[~df["post_id"].isin(recent_ids)]
+                filtered_count = len(df)
+                self.logger.info(f"Filtered {original_count - filtered_count} duplicate posts")
 
-            original_count = len(df)
-            df = df[~df["post_id"].isin(recent_ids)]
-            filtered_count = len(df)
+                if df.empty:
+                    self.logger.info("No new posts to upload after deduplication")
+                    return
 
-            self.logger.info(f"Filtered {original_count - filtered_count} duplicate posts")
-
-            if df.empty:
-                self.logger.info("No new posts to upload after deduplication")
-                return
+            except (FileNotFoundError, EmptyDatasetError):
+                self.logger.warning("No existing HF dataset found — uploading without deduplication")
 
             dataset = Dataset.from_pandas(df)
             dataset.push_to_hub(
                 "hblim/top_reddit_posts_daily",
                 split="train",
-                token=os.getenv("HF_TOKEN")
+                token=os.getenv("HF_TOKEN"),
+                append=True
             )
-            self.logger.info(f"Successfully uploaded {filtered_count} new posts for {date_str} to Hugging Face")
+            self.logger.info(f"Uploaded {len(df)} posts for {date_str} to Hugging Face")
 
         except Exception as e:
             self.logger.error(f"Failed to upload to Hugging Face: {str(e)}", exc_info=True)
