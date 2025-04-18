@@ -125,20 +125,59 @@ class RedditScraper:
             return
 
         try:
+            # Initialize HF API
+            api = HfApi()
+            repo_id = "hblim/top_reddit_posts_daily"
+            
+            # Try to get previous day's parquet file
+            try:
+                # Calculate previous day's date
+                current_date = datetime.strptime(date_str, "%Y-%m-%d")
+                prev_date = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
+                prev_file_path = f"data_raw/{prev_date}.parquet"
+                
+                self.logger.info(f"Checking for previous day's file: {prev_file_path}")
+                
+                # Download previous day's parquet file
+                downloaded_path = api.hf_hub_download(
+                    repo_id=repo_id,
+                    filename=prev_file_path,
+                    repo_type="dataset",    # since you're fetching from a dataset repo
+                )
+                
+                # Read post_ids from the previous day's parquet file
+                existing_df = pd.read_parquet(downloaded_path)
+                existing_ids = set(existing_df["post_id"].tolist())
+                
+                # Clean up temp file
+                Path(downloaded_path).unlink()
+                
+                # Remove duplicates from current day's data
+                original_count = len(df)
+                df = df[~df["post_id"].isin(existing_ids)]
+                filtered_count = len(df)
+                
+                self.logger.info(f"Filtered {original_count - filtered_count} duplicate posts based on post_id")
+                
+                if df.empty:
+                    self.logger.info("No new posts to upload after deduplication")
+                    return
+                    
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch or process previous day's file: {str(e)}")
+                # Continue with current day's data if previous day's file doesn't exist or can't be processed
+            
             # Save to parquet locally
             parquet_path = self.save_to_parquet(df, date_str)
             
             # Prepare path in repo
             path_in_repo = f"data_raw/{date_str}.parquet"
             
-            # Initialize HF API
-            api = HfApi()
-            
             # Upload to HF
             api.upload_file(
                 path_or_fileobj=str(parquet_path),
                 path_in_repo=path_in_repo,
-                repo_id="hblim/top_reddit_posts_daily",
+                repo_id=repo_id,
                 repo_type="dataset",
                 token=os.getenv("HF_TOKEN")
             )
