@@ -1,6 +1,6 @@
 # reddit-scraper
 
-A daily scraper that collects the top posts and comments from configurable subreddits, deduplicates against the previous day’s data, and optionally pushes each day’s results to a Hugging Face Hub dataset.
+A daily scraper that collects the top posts and comments from configurable subreddits, deduplicates against the previous day’s data, and optionally pushes each day’s results to a Hugging Face Hub dataset - [hblim/top-reddit-posts-daily](https://huggingface.co/datasets/hblim/top_reddit_posts_daily)
 
 ---
 
