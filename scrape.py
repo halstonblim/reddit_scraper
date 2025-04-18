@@ -112,7 +112,12 @@ class RedditScraper:
         self.logger.info(f"Saved data to {output_path}")
         return output_path
 
-
+    def save_to_parquet(self, df, date_str):
+        """Save DataFrame to parquet file."""
+        output_path = Path(self.config['output_dir']) / f"posts_{date_str}.parquet"
+        df.to_parquet(output_path, index=False)
+        self.logger.info(f"Saved data to {output_path}")
+        return output_path
 
     def upload_to_hf(self, df, date_str):
         if not self.config.get('push_to_hf', False):
@@ -120,35 +125,24 @@ class RedditScraper:
             return
 
         try:
-            combined_dataset = None
-
-            try:
-                self.logger.info("Loading existing HF dataset for deduplication...")
-                existing = load_dataset("hblim/top_reddit_posts_daily", split="train")
-
-                existing_ids = set(existing["post_id"])
-                original_count = len(df)
-                df = df[~df["post_id"].isin(existing_ids)]
-                filtered_count = len(df)
-                self.logger.info(f"Filtered {original_count - filtered_count} duplicate posts based on post_id")
-
-                if df.empty:
-                    self.logger.info("No new posts to upload after deduplication")
-                    return
-
-                new_dataset = Dataset.from_pandas(df)
-                combined_dataset = concatenate_datasets([existing, new_dataset])
-
-            except (FileNotFoundError, EmptyDatasetError):
-                self.logger.warning("No existing HF dataset found — creating new one")
-                combined_dataset = Dataset.from_pandas(df)
-
-            combined_dataset.push_to_hub(
-                "hblim/top_reddit_posts_daily",
-                split="train",
+            # Save to parquet locally
+            parquet_path = self.save_to_parquet(df, date_str)
+            
+            # Prepare path in repo
+            path_in_repo = f"data_raw/{date_str}.parquet"
+            
+            # Initialize HF API
+            api = HfApi()
+            
+            # Upload to HF
+            api.upload_file(
+                path_or_fileobj=str(parquet_path),
+                path_in_repo=path_in_repo,
+                repo_id="hblim/top_reddit_posts_daily",
+                repo_type="dataset",
                 token=os.getenv("HF_TOKEN")
             )
-            self.logger.info(f"Uploaded {len(df)} new posts for {date_str} to Hugging Face")
+            self.logger.info(f"Uploaded {len(df)} rows for {date_str} → {path_in_repo}")
 
         except Exception as e:
             self.logger.error(f"Failed to upload to Hugging Face: {str(e)}", exc_info=True)
